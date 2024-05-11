@@ -26,9 +26,6 @@ class PlantGuesser():
         self.data_builder = DataBuilder()
         self.build()
 
-
-
-
     def build(self):
         # Image Processing Layers
         image_inputs = Input(shape=(3, *Config.image_size), name='images')
@@ -52,28 +49,28 @@ class PlantGuesser():
         output1 = Dense(64, activation='selu')(output1)
 
         output11 = Dense(32, activation='relu')(output1)
-        output11 = Dense(6, activation='relu')(output11)
+        output11 = Dense(8, activation='relu')(output11)
         output11 = Dense(1, activation=CAF.mapping_to_target_range0to1)(output11)
 
         output12 = Dense(32, activation='relu')(output1)
-        output12 = Dense(6, activation='relu')(output12)
+        output12 = Dense(8, activation='relu')(output12)
         output12 = Dense(1, activation=CAF.mapping_to_target_range0to100)(output12)
 
         output13 = Dense(32, activation='relu')(output1)
-        output13 = Dense(6, activation='relu')(output13)
+        output13 = Dense(8, activation='relu')(output13)
         output13 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output13)
 
         output14 = Dense(32, activation='relu')(output1)
-        output14 = Dense(6, activation='relu')(output14)
+        output14 = Dense(8, activation='relu')(output14)
         output14 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output14)
 
         output15 = Dense(32, activation='relu')(output1)
-        output15 = Dense(6, activation='relu')(output15)
+        output15 = Dense(8, activation='relu')(output15)
         output15 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output15)
 
         output16 = Dense(32, activation='relu')(output1)
-        output16 = Dense(6, activation='relu')(output16)
-        output16 = Dense(1, activation=CAF.mapping_to_target_range0to10000)(output16)
+        output16 = Dense(8, activation='relu')(output16)
+        output16 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output16)
 
         output_concatenated = Concatenate()([output11, output12, output13, output14, output15, output16])
         output1 = ks.layers.Dense(Config.num_classes, activation=None, name="head")(output_concatenated)
@@ -97,10 +94,7 @@ class PlantGuesser():
             save_weights_only=False,
             mode="max",
         )
-        criterion = {
-            "head": R2Loss(use_mask=False),
-            "aux_head": R2Loss(use_mask=True),  # use_mask to ignore `NaN` auxiliary labels
-        }
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(device)
 
