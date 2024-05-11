@@ -5,21 +5,18 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from datetime import datetime
 
 import numpy as np
-import keras_core as ks
-from keras_core import Input, Model
+import keras as ks
+from keras import Input, Model
 from matplotlib import pyplot as plt
 
 from LossFunctions import R2Loss, R2Metric
-from torch.nn import LeakyReLU
-
+import CustomActivationFunctions as CAF
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from keras_core.src.layers import Dropout, Concatenate, Flatten, Conv2D, MaxPooling1D, Dense, Reshape, Conv3D, \
-    MaxPooling3D, MaxPooling2D
+from keras.src.layers import Dropout, Concatenate, Flatten, Conv2D, MaxPooling1D, Dense, Reshape, Conv3D, \
+    MaxPooling3D, MaxPooling2D, GlobalAveragePooling2D
 from Config import Config
 from DataManagment import DataBuilder
-#import keras_core as ks
+
 
 
 class PlantGuesser():
@@ -29,36 +26,62 @@ class PlantGuesser():
         self.data_builder = DataBuilder()
         self.build()
 
+
+
+
     def build(self):
-        image_inputs = Input(shape=(3, *Config.image_size), name='images')
-        feature_inputs = Input(shape=(len(self.data_builder.FEATURE_COLS),), name='features')
         # Image Processing Layers
-        image_net = Conv2D(244, kernel_size=(3, 3), strides=(2, 2), activation="selu")(image_inputs)
+        image_inputs = Input(shape=(3, *Config.image_size), name='images')
+        image_net = Conv2D(244*3, kernel_size=(3, 3), strides=(2, 2), activation="selu")(image_inputs)
         image_net = Conv2D(128, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
         image_net = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
         image_net = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
-        image_net = Conv2D(16, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
-        image_net = Conv2D(8, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
-        image_net = Flatten()(image_net)
-        # Metafeature Processing Layers
+        image_net = GlobalAveragePooling2D()(image_net)
+
+        feature_inputs = Input(shape=(len(self.data_builder.FEATURE_COLS),), name='features')
         feature_net = Dense(576, activation='relu')(feature_inputs)
         feature_net = Dense(326, activation='relu')(feature_net)
         feature_net = Dense(128, activation='relu')(feature_net)
+        feature_net = Dense(64, activation='relu')(feature_net)
 
         # Concatenated Layers
         concatenated_net = Concatenate()([image_net, feature_net])
 
         # Output Layers
         output1 = Dense(128, activation='relu')(concatenated_net)
-        output2 = Dense(128, activation='relu')(concatenated_net)
-        output1 = Dense(32, activation='selu')(output1)
-        output2 = Dense(32, activation='selu')(output2)
-        output1 = Dense(16, activation='relu')(output1)
-        output2 = Dense(16, activation='relu')(output2)
-        output1 = Dense(6, activation='linear')(output1)  # Linear activation for regression
-        output2 = Dense(6, activation='linear')(output2)
+        output1 = Dense(64, activation='selu')(output1)
 
-        output1 = ks.layers.Dense(Config.num_classes, activation=None, name="head")(output1)
+        output11 = Dense(32, activation='relu')(output1)
+        output11 = Dense(6, activation='relu')(output11)
+        output11 = Dense(1, activation=CAF.mapping_to_target_range0to1)(output11)
+
+        output12 = Dense(32, activation='relu')(output1)
+        output12 = Dense(6, activation='relu')(output12)
+        output12 = Dense(1, activation=CAF.mapping_to_target_range0to100)(output12)
+
+        output13 = Dense(32, activation='relu')(output1)
+        output13 = Dense(6, activation='relu')(output13)
+        output13 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output13)
+
+        output14 = Dense(32, activation='relu')(output1)
+        output14 = Dense(6, activation='relu')(output14)
+        output14 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output14)
+
+        output15 = Dense(32, activation='relu')(output1)
+        output15 = Dense(6, activation='relu')(output15)
+        output15 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output15)
+
+        output16 = Dense(32, activation='relu')(output1)
+        output16 = Dense(6, activation='relu')(output16)
+        output16 = Dense(1, activation=CAF.mapping_to_target_range0to10000)(output16)
+
+        output_concatenated = Concatenate()([output11, output12, output13, output14, output15, output16])
+        output1 = ks.layers.Dense(Config.num_classes, activation=None, name="head")(output_concatenated)
+
+        output2 = Dense(128, activation='relu')(concatenated_net)
+        output2 = Dense(32, activation='selu')(output2)
+        output2 = Dense(16, activation='relu')(output2)
+        output2 = Dense(6, activation='linear')(output2)
         output2 = ks.layers.Dense(Config.aux_num_classes, activation=None, name="aux_head")(output2)
 
         output = {"head": output1, "aux_head": output2}
@@ -91,13 +114,13 @@ class PlantGuesser():
             metrics={"head": R2Metric()},
         )
 
-        self.model.summary()
 
         torch.cuda.empty_cache()
         torch.cuda.set_device(0)
 
         self.model.fit(
             self.data_builder.train_dataprovider,
+            validation_data=self.data_builder.valid_dataset,
             batch_size=Config.batch_size,
             epochs=Config.epochs,
             steps_per_epoch=len(self.data_builder.test_dataframe) // Config.batch_size,
@@ -136,7 +159,7 @@ class PlantGuesser():
     def examine(self):
         history_dict = self.model.history.history
         loss_values = history_dict['loss']
-        val_loss_values = history_dict['learning_rate']
+        val_loss_values = history_dict['val_loss']
         self.predictions = []
         self.targets = []
         mean_deltas = []
@@ -160,13 +183,13 @@ class PlantGuesser():
         # Plot the loss vs Epochs
         #
         axes[0].plot(epochs, loss_values, 'r', label='Training loss')
-        axes[0].plot(epochs, val_loss_values, 'b', label='learning loss')
+        axes[0].plot(epochs, val_loss_values, 'bo', label='Validation loss')
         axes[0].set_title('Training Loss', fontsize=16)
         axes[0].set_xlabel('Epochs', fontsize=16)
         axes[0].set_ylabel('Loss', fontsize=16)
         axes[0].legend()
 
-        axes[1].plot(mean_deltas, 'r', label='Training loss')
+        axes[1].plot(mean_deltas, 'r', label='Mean Delta per Batch')
         axes[1].set_title('Mean Delta for batch', fontsize=16)
         axes[1].set_xlabel('Batch', fontsize=16)
         axes[1].set_ylabel('Delta', fontsize=16)
@@ -185,6 +208,7 @@ class PlantGuesser():
         filename = f"output-{timestamp}.txt"
 
         with open(filename, "a") as f:
+
             for i in range(12):
                 prediction = self.predictions["head"][i]
                 target = self.targets[i].numpy()

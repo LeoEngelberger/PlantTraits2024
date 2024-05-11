@@ -2,3 +2,10 @@
 /Data
 output-*.txt
 
+__pycache__/LossFunctions.cpython-39.pyc
+__pycache__/DataManagment.cpython-39.pyc
+__pycache__/CustomModel.cpython-39.pyc
+__pycache__/CustomActivationFunctions.cpython-39.pyc
+__pycache__/Config.cpython-39.pyc
+.idea/pythonProject.iml
+.idea/misc.xml

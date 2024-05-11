@@ -1,6 +1,6 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
-import keras_core as ks
+import keras as ks
 
 
 class R2Loss(ks.losses.Loss):

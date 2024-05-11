@@ -48,7 +48,8 @@ class DataBuilder:
         train_labels = self.train_dataframe[Config.class_names].values
         train_aux_labels = self.train_dataframe[Config.aux_class_names].values
         self.train_dataprovider = self.build_dataset(train_paths, train_features, train_labels, train_aux_labels,
-                                                     batch_size=Config.batch_size, shuffle=True, augment=True,
+                                                     batch_size=Config.batch_size, shuffle=True, drop_last=True,
+                                                     augment=True,
                                                      cache=False)
         self.valid_dataframe = sample_dataframe[sample_dataframe.fold == Config.fold]
         valid_features = scaler.transform(self.valid_dataframe[self.FEATURE_COLS].values)
@@ -122,22 +123,12 @@ class DataBuilder:
     def build_dataset(self, paths, features, labels=None, aux_labels=None, batch_size=32, cache=True,
                       augment=False, shuffle=True, cache_dir="", drop_last=False):
         transform = transforms.Compose([
-            # transforms.RandomAdjustSharpness(sharpness_factor=0.01, p=0.25),
-            # transforms.RandomRotation((0.01, 0.1)),
-            # transforms.RandomVerticalFlip(p=0.1),
-            # transforms.RandomHorizontalFlip(p=0.1),
             transforms.AutoAugment(),
-            # transforms.ColorJitter(brightness=0.1, saturation=0.1, contrast=0.2, hue=0.1),
-            # adjust this size as per your requirement
-            #transforms.Resize(Config.image_size),
             transforms.RandomResizedCrop(size=Config.image_size, antialias=True),
             transforms.ToTensor(),
         ])
-        features[0]=features[0]
-        # labels.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        # aux_labels.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        dataset = CustomDataset(paths, features, labels, aux_labels, transform)
 
+        dataset = CustomDataset(paths, features, labels, aux_labels, transform)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                                 drop_last=drop_last, pin_memory=True)
         return dataloader
