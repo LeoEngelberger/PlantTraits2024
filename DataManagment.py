@@ -152,11 +152,12 @@ class CustomDataset(Dataset):
         if self.transform:
             image = self.transform(image)
         image /= 255.0
+        image.float()
 
         if self.labels is not None:
             label = self.labels[idx]
 
             aux_label = self.aux_labels[idx] if self.aux_labels is not None else None
-            return (image, features),label
+            return (image, features),label.astype(np.float32), aux_label.astype(np.float32)
         else:
             return image, features

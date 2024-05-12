@@ -1,11 +1,12 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
 class Config:
+    BatchPerEpoch = 0
     verbose = 1  # Verbosity
     seed = 1  # Random seed
     image_size = [224, 224]  # Input image size
     epochs = 32 # Training epochs
-    batch_size = 320 # Batch size
+    batch_size = 32 # Batch size
     lr_mode = "cos"  # LR scheduler mode from one of "cos", "step", "exp"
     drop_remainder = True  # Drop incomplete batches
     num_folds = 5  # Number of folds to split the dataset

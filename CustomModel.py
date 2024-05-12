@@ -1,5 +1,8 @@
 import math
 import os
+
+import LossFunctions
+
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
@@ -11,7 +14,7 @@ import numpy as np
 import keras as ks
 from keras import Input, Model
 from matplotlib import pyplot as plt
-
+from torch import nn
 from LossFunctions import R2Loss, R2Metric
 import CustomActivationFunctions as CAF
 import torch
@@ -22,77 +25,148 @@ from DataManagment import DataBuilder
 
 
 
-class PlantGuesser():
+class PlantGuesser(nn.Module):
     def __init__(self):
+        super(PlantGuesser, self).__init__()
         self.checkpoint = None
-        self.model = None
         self.data_builder = DataBuilder()
         self.build()
 
     def build(self):
-        backbone = torchvision.models.efficientnet_v2_l(torchvision.models.EfficientNet_V2_L_Weights).features
+        #Load backbone
+        backbone = torchvision.models.efficientnet_v2_l(torchvision.models.EfficientNet_V2_L_Weights)
+        self.backbone_features = backbone.features
 
         # Image Processing Layers
-        image_inputs = Input(shape=(3, *Config.image_size), name='images')
-        #image_inputs = torch.nn.Inpu(shape=(3, *Config.image_size), name='images')
-        #image_net = Dense(256, activation='relu')(image_inputs)
-        image_net = backbone(image_inputs)
-        image_net = Conv2D(256, kernel_size=(3, 3), strides=(2, 2), activation="selu")(image_net)
-        #image_net = Conv2D(256, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
-        image_net = Conv2D(128, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
-        image_net = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
-        image_net = GlobalAveragePooling2D()(image_net)
+        self.image_net = nn.Sequential(
+            nn.Conv2d(1280, 128, kernel_size=(3, 3), stride=(2, 2)),  # Adjust input channels accordingly
+            nn.SELU(),
+            nn.Conv2d(128, 64, kernel_size=(3, 3), stride=(2, 2), padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(2, 2), padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1))
+        )
 
-        feature_inputs = Input(shape=(len(self.data_builder.FEATURE_COLS),), name='features')
-        feature_net = Dense(576, activation='relu')(feature_inputs)
-        feature_net = Dense(326, activation='relu')(feature_net)
-        feature_net = Dense(256, activation='relu')(feature_net)
-        feature_net = Dense(128, activation='relu')(feature_net)
-
-        # Concatenated Layers
-        concatenated_net = Concatenate()([image_net, feature_net])
+        # Feature Layers
+        self.feature_net = nn.Sequential(
+            nn.Linear(len(self.data_builder.FEATURE_COLS), 576),
+            nn.ReLU(),
+            nn.Linear(576, 326),
+            nn.ReLU(),
+            nn.Linear(326, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU()
+        )
 
         # Output Layers
-        output1 = Dense(256, activation='relu')(concatenated_net)
-        output1 = Dense(128, activation='relu')(output1)
+        self.output1 = nn.Sequential(
+            nn.Linear(192, 256),  # Adjust input size accordingly
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU()
+        )
+        self.conc_output = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(32, 6),
+        )
 
-        output11 = Dense(64, activation='relu')(output1)
-        output11 = Dense(16, activation='relu')(output11)
-        output11 = Dense(1, activation=CAF.mapping_to_target_range0to1)(output11)
+        self.output11 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Assuming mapping_to_target_range0to1 returns values between 0 and 1
+        )
 
-        output12 = Dense(64, activation='relu')(output1)
-        output12 = Dense(16, activation='relu')(output12)
-        output12 = Dense(1, activation=CAF.mapping_to_target_range0to100)(output12)
+        self.output12 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Assuming mapping_to_target_range0to1 returns values between 0 and 1
+        )
 
-        output13 = Dense(64, activation='relu')(output1)
-        output13 = Dense(16, activation='relu')(output13)
-        output13 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output13)
+        self.output13 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Assuming mapping_to_target_range0to1 returns values between 0 and 1
+        )
 
-        output14 = Dense(64, activation='relu')(output1)
-        output14 = Dense(16, activation='relu')(output14)
-        output14 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output14)
+        self.output14 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Assuming mapping_to_target_range0to1 returns values between 0 and 1
+        )
 
-        output15 = Dense(64, activation='relu')(output1)
-        output15 = Dense(16, activation='relu')(output15)
-        output15 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output15)
+        self.output15 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Assuming mapping_to_target_range0to1 returns values between 0 and 1
+        )
 
-        output16 = Dense(64, activation='relu')(output1)
-        output16 = Dense(16, activation='relu')(output16)
-        output16 = Dense(1, activation=CAF.mapping_to_target_range0to1000)(output16)
+        self.output16 = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
 
-        output_concatenated = Concatenate()([output11, output12, output13, output14, output15, output16])
-        output1 = ks.layers.Dense(Config.num_classes, activation=None, name="head")(output_concatenated)
 
-        output2 = Dense(128, activation='relu')(concatenated_net)
-        output2 = Dense(32, activation='relu')(output2)
-        output2 = Dense(16, activation='relu')(output2)
-        output2 = Dense(6, activation='linear')(output2)
-        output2 = ks.layers.Dense(Config.aux_num_classes, activation=None, name="aux_head")(output2)
+        # Define other output layers similarly...
 
-        output = {"head": output1, "aux_head": output2}
+        self.output2 = nn.Sequential(
+            nn.Linear(192, 128),  # Adjust input size accordingly
+            nn.ReLU(),
+            nn.Linear(128, 32),
+            nn.ReLU(),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 6)
+        )
 
-        self.model = Model(([image_inputs, feature_inputs]), output)
-        self.model.summary()
+    def forward(self, images, features):
+        image_features = self.backbone_features(images)
+        image_features = self.image_net(image_features)
+        image_features = image_features.view(image_features.size(0), -1)
+
+        feature_features = self.feature_net(features)
+
+        concatenated_net = torch.cat((image_features, feature_features), dim=1)
+
+        output1 = self.output1(concatenated_net)
+        output11 = self.output11(output1)
+        output12 = self.output12(output1)
+        output12 = output12*50
+        output13 = self.output13(output1)
+        output13 = output13*10
+        output14 = self.output14(output1)
+        output14 = output14*50
+        output15 = self.output15(output1)
+        output15 = output15*10
+        output16 = self.output16(output1)
+        output16 = output16*10000
+        concatenated_outputs = torch.cat((output11, output12, output13, output14, output15, output16), dim=1)
+
+
+        output2 = self.output2(concatenated_net)
+
+        return {"head": concatenated_outputs, "aux_head": output2}
 
     def compile(self):
         self.checkpoint = ks.callbacks.ModelCheckpoint(
@@ -104,79 +178,126 @@ class PlantGuesser():
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(device)
-
-        self.model.compile(
-            optimizer="adam",
-            loss={
-                "head": R2Loss(use_mask=False),
-                "aux_head": R2Loss(use_mask=True),  # use_mask to ignore `NaN` auxiliary labels
-            },
-            loss_weights={"head": 1.0, "aux_head": 0.2},
-            metrics={"head": R2Metric()},
-        )
+        self.to(device)
 
 
-        torch.cuda.empty_cache()
-        torch.cuda.set_device(0)
+        self.optimizer = torch.optim.Adam(self.parameters())
+        self.loss_function = LossFunctions.R2Loss() # Define your loss function accordingly
+        self.train_model()
+    def train_model(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        learning_rate_scheduler = self.get_lr_scheduler(Config.batch_size, mode=Config.lr_mode,epochs = Config.epochs, plot=True)
+        self.history = {"loss_per_epoch": [], "val_loss_per_epoch": []}  # Initialize dictionaries
+        loss_per_epoch = []
+        Config.BatchPerEpoch = len(self.data_builder.train_dataprovider) // Config.batch_size
+        for epoch in range(Config.epochs):
+            print(f"\n start of epoch {epoch}")
+            self.train()
+            total_loss = 0.0
+            # Set the learning rate for this epoch
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.lrfn(epoch)
+            for batch_idx, (features, labels, aux_labels) in enumerate(self.data_builder.train_dataprovider):
+                images, features, labels, aux_labels = features[0].to(device), features[1].to(device), labels.to(
+                    device), aux_labels.to(device)
+                self.optimizer.zero_grad()
+                outputs = self(images, features)
+                loss = self.loss_function(outputs["head"], labels)
+                loss.backward()
+                self.optimizer.step()
+                total_loss += loss.item()
+                if batch_idx > 10:#Config.BatchPerEpoch:
+                    break
 
-        self.model.fit(
-            self.data_builder.train_dataprovider,
-            validation_data=self.data_builder.valid_dataset,
-            batch_size=Config.batch_size,
-            epochs=Config.epochs,
-            steps_per_epoch=len(self.data_builder.test_dataframe) // Config.batch_size,
-            callbacks=[self.get_lr_scheduler(Config.batch_size, mode=Config.lr_mode,epochs = Config.epochs, plot=True), self.checkpoint],
-        )
+            average_loss = total_loss / len(self.data_builder.train_dataprovider)
+            self.history["loss_per_epoch"].append(average_loss)
+            #print(f"Batch {batch_idx + 1}/{Config.batch_size}, Train Loss: {average_loss:.4f}")
 
-    def get_lr_scheduler(self, batch_size=8, mode='cos', epochs=10, plot=False):
-        lr_start, lr_max, lr_min = 5e-5, 8e-6 * batch_size, 1e-5
-        lr_ramp_ep, lr_sus_ep, lr_decay = 3, 0, 0.75
+            # Validation step
+            self.eval()  # Set model to evaluation mode
+            with torch.no_grad():
+                total_val_loss = 0.0
+                for batch_idx, (val_features, val_labels, val_aux_labels) in enumerate(self.data_builder.valid_dataset):
+                    # Convert validation data to float32
+                    val_images, val_features, val_labels, val_aux_labels = val_features[0].to(device), val_features[
+                        1].to(device), val_labels.to(device), val_aux_labels.to(device)
 
-        def lrfn(epoch):  # Learning rate update function
-            if epoch < lr_ramp_ep:
-                lr = (lr_max - lr_start) / lr_ramp_ep * epoch + lr_start
-            elif epoch < lr_ramp_ep + lr_sus_ep:
-                lr = lr_max
-            elif mode == 'exp':
-                lr = (lr_max - lr_min) * lr_decay ** (epoch - lr_ramp_ep - lr_sus_ep) + lr_min
-            elif mode == 'step':
-                lr = lr_max * lr_decay ** ((epoch - lr_ramp_ep - lr_sus_ep) // 2)
-            elif mode == 'cos':
-                decay_total_epochs, decay_epoch_index = epochs - lr_ramp_ep - lr_sus_ep + 3, epoch - lr_ramp_ep - lr_sus_ep
-                phase = math.pi * decay_epoch_index / decay_total_epochs
-                lr = (lr_max - lr_min) * 0.5 * (1 + math.cos(phase)) + lr_min
-            return lr
+                    val_outputs = self(val_images, val_features)
+                    val_loss = self.loss_function(val_outputs["head"], val_labels)
+                    total_val_loss += val_loss.item()
+                    if batch_idx > 10:# Config.BatchPerEpoch:
+                        break
+                average_val_loss = total_val_loss / len(self.data_builder.valid_dataset)
+                self.history["val_loss_per_epoch"].append(average_val_loss)  # Store validation loss
 
+            print(f"Epoch {epoch + 1}/{Config.epochs}, Train Loss: {average_loss:.4f}, Validation Loss: {average_val_loss:.4f}", end='', flush=True)
+
+    def get_lr_scheduler(self, batch_size=8, mode='cos', epochs=10, plot=True):
+        self.lr_start, self.lr_max, self.lr_min = 5e-5, 8e-6 * batch_size, 1e-5
+        self.lr_ramp_ep, self.lr_sus_ep, self.lr_decay = 3, 0, 0.75
         if plot:  # Plot lr curve if plot is True
             plt.figure(figsize=(10, 5))
-            plt.plot(np.arange(epochs), [lrfn(epoch) for epoch in np.arange(epochs)], marker='o')
+            plt.plot(np.arange(epochs), [self.lrfn(epoch) for epoch in np.arange(epochs)], marker='o')
             plt.xlabel('epoch')
             plt.ylabel('lr')
             plt.title('LR Scheduler')
             plt.show()
 
-        return ks.callbacks.LearningRateScheduler(lrfn, verbose=False)  # Create lr callback
+        return ks.callbacks.LearningRateScheduler(self.lrfn, verbose=False)
+
+    def lrfn(self,epoch):  # Learning rate update function
+        if epoch < self.lr_ramp_ep:
+            lr = (self.lr_max - self.lr_start) / self.lr_ramp_ep * epoch + self.lr_start
+        elif epoch < self.lr_ramp_ep + self.lr_sus_ep:
+            lr = self.lr_max
+        elif Config.lr_mode == 'exp':
+            lr = (self.lr_max - self.lr_min) * self.lr_decay ** (epoch - self.lr_ramp_ep - self.lr_sus_ep) + self.lr_min
+        elif Config.lr_mode == 'step':
+            lr = self.lr_max * self.lr_decay ** ((epoch - self.lr_ramp_ep - self.lr_sus_ep) // 2)
+        elif Config.lr_mode == 'cos':
+            decay_total_epochs, decay_epoch_index = Config.epochs - self.lr_ramp_ep - self.lr_sus_ep + 3, epoch - self.lr_ramp_ep - self.lr_sus_ep
+            phase = math.pi * decay_epoch_index / decay_total_epochs
+            lr = (self.lr_max - self.lr_min) * 0.5 * (1 + math.cos(phase)) + self.lr_min
+        return lr
+
+  # Create lr callback
 
     def examine(self):
-        history_dict = self.model.history.history
-        loss_values = history_dict['loss']
-        val_loss_values = history_dict['val_loss']
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        history_dict = self.history
+        loss_values = history_dict['loss_per_epoch']
+        val_loss_values = history_dict['val_loss_per_epoch']
         self.predictions = []
         self.targets = []
         mean_deltas = []
 
-        for batch in self.data_builder.train_dataprovider:
-            inpts = batch[0]
-            self.targets = batch[1]
-            self.predictions = self.model.predict(inpts)
-            break
+        self.eval()  # Set model to evaluation mode
+        with torch.no_grad():
+            total_val_loss = 0.0
+            for batch_idx, (val_features, val_labels, val_aux_labels) in enumerate(self.data_builder.valid_dataset):
+                # Convert validation data to float32
+                val_images, val_features, val_labels, val_aux_labels = val_features[0].to(device), val_features[
+                    1].to(device), val_labels.to(device), val_aux_labels.to(device)
+                self.predictions.append(self(val_images, val_features))
+                self.targets.append(val_labels)
+                print("\nTargets:\n")
+                for tensor in self.targets:
+                    tensor_list = tensor.tolist()
+                    print(f': {tensor_list}')
+                val_outputs = self.predictions[batch_idx]
+                print("predictions: \n")
+                for key, tensor in val_outputs.items():
+                    tensor_list = tensor.tolist()
+                    print(f'{key}: {tensor_list}')
+                val_loss = self.loss_function(val_outputs["head"], val_labels)
+                total_val_loss += val_loss.item()
+                break
 
         for i in range(len(self.targets)):
-            prediction = self.predictions["head"][i]
-            target = self.targets[i].numpy()
+            prediction = self.predictions[0]["head"][i].cpu()
+            target = self.targets[i].cpu().numpy()
             delta = np.abs(prediction - target)  # Calculate absolute differences
-            mean_deltas.append(np.mean(delta))
+            mean_deltas.append(delta/len(self.targets[i]))
 
         epochs = range(1, len(loss_values) + 1)
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -191,7 +312,7 @@ class PlantGuesser():
         axes[0].set_ylabel('Loss', fontsize=16)
         axes[0].legend()
 
-        axes[1].plot(mean_deltas, 'r', label='Mean Delta per Batch')
+        axes[1].plot(mean_deltas[0], 'r')
         axes[1].set_title('Mean Delta for batch', fontsize=16)
         axes[1].set_xlabel('Batch', fontsize=16)
         axes[1].set_ylabel('Delta', fontsize=16)
@@ -209,46 +330,46 @@ class PlantGuesser():
 
         filename = f"output-{timestamp}.txt"
 
-        with open(filename, "a") as f:
-
-            for i in range(12):
-                prediction = self.predictions["head"][i]
-                target = self.targets[i].numpy()
-
-                formatted_predictions = "".join(
-                    [
-                        ", ".join(
-                            f"{name.replace('_mean', '')}: {val:.2f}"
-                            for name, val in zip(Config.class_names[j: j + 3], prediction[j: j + 3])
-                        )
-                        for j in range(0, len(Config.class_names), 3)
-                    ]
-                )
-                formatted_tar = "".join(
-                    [
-                        ", ".join(
-                            f"{name.replace('_mean', '')}: {val:.2f}"
-                            for name, val in zip(Config.class_names[j: j + 3], target[j: j + 3])
-                        )
-                        for j in range(0, len(Config.class_names), 3)
-                    ]
-                )
-
-                f.writelines('#' * 50 + '\n')
-                f.writelines(f"Comparison {i} \n")
-                f.writelines('=' * 40 + '\n')
-                f.writelines("Predictions: \n")
-                f.writelines(formatted_predictions + "\n")
-                f.writelines('*' * 40 + '\n')
-                f.writelines("Targets: \n")
-                f.writelines(formatted_tar + "\n")
-                f.flush()
-
-                print('=' * 12)
-                print("PREDICTIONS")
-                print(formatted_predictions)
-                print('*' * 12)
-                print("TARGETS")
-                print(formatted_tar)
-
-            f.close()
+        # with open(filename, "a") as f:
+        #
+        #     for i in range(12):
+        #         prediction = self.predictions[0]["head"][i]
+        #         target = self.targets[i].numpy()
+        #
+        #         formatted_predictions = "".join(
+        #             [
+        #                 ", ".join(
+        #                     f"{name.replace('_mean', '')}: {val:.2f}"
+        #                     for name, val in zip(Config.class_names[j: j + 3], prediction[j: j + 3])
+        #                 )
+        #                 for j in range(0, len(Config.class_names), 3)
+        #             ]
+        #         )
+        #         formatted_tar = "".join(
+        #             [
+        #                 ", ".join(
+        #                     f"{name.replace('_mean', '')}: {val:.2f}"
+        #                     for name, val in zip(Config.class_names[j: j + 3], target[j: j + 3])
+        #                 )
+        #                 for j in range(0, len(Config.class_names), 3)
+        #             ]
+        #         )
+        #
+        #         f.writelines('#' * 50 + '\n')
+        #         f.writelines(f"Comparison {i} \n")
+        #         f.writelines('=' * 40 + '\n')
+        #         f.writelines("Predictions: \n")
+        #         f.writelines(formatted_predictions + "\n")
+        #         f.writelines('*' * 40 + '\n')
+        #         f.writelines("Targets: \n")
+        #         f.writelines(formatted_tar + "\n")
+        #         f.flush()
+        #
+        #         print('=' * 12)
+        #         print("PREDICTIONS")
+        #         print(formatted_predictions)
+        #         print('*' * 12)
+        #         print("TARGETS")
+        #         print(formatted_tar)
+        #
+        #     f.close()

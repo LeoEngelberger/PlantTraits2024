@@ -1,3 +1,5 @@
+import math
+
 from keras import backend as BK
 import keras as ks
 
@@ -29,3 +31,6 @@ def mapping_to_target_range0to10000(x, ):
     scale = 10000.
     x02 = ks.ops.relu(x)
     return x02 * scale
+
+def map_to_positive(x, ):
+    return math.sqrt(x ** 2)
