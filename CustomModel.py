@@ -2,6 +2,9 @@ import math
 import os
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
+import torchvision.models
+
 from datetime import datetime
 
 import numpy as np
@@ -27,56 +30,61 @@ class PlantGuesser():
         self.build()
 
     def build(self):
+        backbone = torchvision.models.efficientnet_v2_l(torchvision.models.EfficientNet_V2_L_Weights).features
+
         # Image Processing Layers
         image_inputs = Input(shape=(3, *Config.image_size), name='images')
-        image_net = Conv2D(244*3, kernel_size=(3, 3), strides=(2, 2), activation="selu")(image_inputs)
-        image_net = Conv2D(128, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
-        image_net = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
-        image_net = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="selu")(image_net)
+        #image_inputs = torch.nn.Inpu(shape=(3, *Config.image_size), name='images')
+        #image_net = Dense(256, activation='relu')(image_inputs)
+        image_net = backbone(image_inputs)
+        image_net = Conv2D(256, kernel_size=(3, 3), strides=(2, 2), activation="selu")(image_net)
+        #image_net = Conv2D(256, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
+        image_net = Conv2D(128, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
+        image_net = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding="same", activation="relu")(image_net)
         image_net = GlobalAveragePooling2D()(image_net)
 
         feature_inputs = Input(shape=(len(self.data_builder.FEATURE_COLS),), name='features')
         feature_net = Dense(576, activation='relu')(feature_inputs)
         feature_net = Dense(326, activation='relu')(feature_net)
+        feature_net = Dense(256, activation='relu')(feature_net)
         feature_net = Dense(128, activation='relu')(feature_net)
-        feature_net = Dense(64, activation='relu')(feature_net)
 
         # Concatenated Layers
         concatenated_net = Concatenate()([image_net, feature_net])
 
         # Output Layers
-        output1 = Dense(128, activation='relu')(concatenated_net)
-        output1 = Dense(64, activation='selu')(output1)
+        output1 = Dense(256, activation='relu')(concatenated_net)
+        output1 = Dense(128, activation='relu')(output1)
 
-        output11 = Dense(32, activation='relu')(output1)
-        output11 = Dense(8, activation='relu')(output11)
+        output11 = Dense(64, activation='relu')(output1)
+        output11 = Dense(16, activation='relu')(output11)
         output11 = Dense(1, activation=CAF.mapping_to_target_range0to1)(output11)
 
-        output12 = Dense(32, activation='relu')(output1)
-        output12 = Dense(8, activation='relu')(output12)
+        output12 = Dense(64, activation='relu')(output1)
+        output12 = Dense(16, activation='relu')(output12)
         output12 = Dense(1, activation=CAF.mapping_to_target_range0to100)(output12)
 
-        output13 = Dense(32, activation='relu')(output1)
-        output13 = Dense(8, activation='relu')(output13)
+        output13 = Dense(64, activation='relu')(output1)
+        output13 = Dense(16, activation='relu')(output13)
         output13 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output13)
 
-        output14 = Dense(32, activation='relu')(output1)
-        output14 = Dense(8, activation='relu')(output14)
+        output14 = Dense(64, activation='relu')(output1)
+        output14 = Dense(16, activation='relu')(output14)
         output14 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output14)
 
-        output15 = Dense(32, activation='relu')(output1)
-        output15 = Dense(8, activation='relu')(output15)
+        output15 = Dense(64, activation='relu')(output1)
+        output15 = Dense(16, activation='relu')(output15)
         output15 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output15)
 
-        output16 = Dense(32, activation='relu')(output1)
-        output16 = Dense(8, activation='relu')(output16)
-        output16 = Dense(1, activation=CAF.mapping_to_target_range0to10)(output16)
+        output16 = Dense(64, activation='relu')(output1)
+        output16 = Dense(16, activation='relu')(output16)
+        output16 = Dense(1, activation=CAF.mapping_to_target_range0to1000)(output16)
 
         output_concatenated = Concatenate()([output11, output12, output13, output14, output15, output16])
         output1 = ks.layers.Dense(Config.num_classes, activation=None, name="head")(output_concatenated)
 
         output2 = Dense(128, activation='relu')(concatenated_net)
-        output2 = Dense(32, activation='selu')(output2)
+        output2 = Dense(32, activation='relu')(output2)
         output2 = Dense(16, activation='relu')(output2)
         output2 = Dense(6, activation='linear')(output2)
         output2 = ks.layers.Dense(Config.aux_num_classes, activation=None, name="aux_head")(output2)
