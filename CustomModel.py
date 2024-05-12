@@ -178,25 +178,30 @@ class PlantGuesser(nn.Module):
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(device)
-
 
         self.optimizer = torch.optim.Adam(self.parameters())
-        self.loss_function = LossFunctions.R2Loss() # Define your loss function accordingly
+        self.loss_function = LossFunctions.R2Loss()  # Define your loss function accordingly
+        self.r2_metric = R2Metric()  # Instantiate R2Metric
+        self.to(device)
         self.train_model()
+
     def train_model(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         learning_rate_scheduler = self.get_lr_scheduler(Config.batch_size, mode=Config.lr_mode,epochs = Config.epochs, plot=True)
         self.history = {"loss_per_epoch": [], "val_loss_per_epoch": []}  # Initialize dictionaries
         loss_per_epoch = []
         Config.BatchPerEpoch = len(self.data_builder.train_dataprovider) // Config.batch_size
+
         for epoch in range(Config.epochs):
-            print(f"\n start of epoch {epoch}")
+            print(f"\n start of epoch {epoch+1}")
             self.train()
             total_loss = 0.0
+            self.r2_metric.reset_states()
+
             # Set the learning rate for this epoch
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = self.lrfn(epoch)
+
             for batch_idx, (features, labels, aux_labels) in enumerate(self.data_builder.train_dataprovider):
                 images, features, labels, aux_labels = features[0].to(device), features[1].to(device), labels.to(
                     device), aux_labels.to(device)
@@ -206,8 +211,12 @@ class PlantGuesser(nn.Module):
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
-                if batch_idx > 10:#Config.BatchPerEpoch:
+                self.r2_metric.update_state(outputs["head"], labels)
+                print(f"batch: {batch_idx+1}/{Config.BatchPerEpoch}, loss: {loss.item():.4f}", end='\r', flush=True)
+                if batch_idx > Config.BatchPerEpoch:
                     break
+            r2_value = self.r2_metric.result().item()
+            print(f"R2 metric: {r2_value}")
 
             average_loss = total_loss / len(self.data_builder.train_dataprovider)
             self.history["loss_per_epoch"].append(average_loss)
@@ -225,11 +234,13 @@ class PlantGuesser(nn.Module):
                     val_outputs = self(val_images, val_features)
                     val_loss = self.loss_function(val_outputs["head"], val_labels)
                     total_val_loss += val_loss.item()
-                    if batch_idx > 10:# Config.BatchPerEpoch:
+                    print(f"validation batch: {batch_idx}/{Config.BatchPerEpoch}, loss: {val_loss.item():.4f}", end='', flush=True)
+                    if batch_idx > Config.BatchPerEpoch:
                         break
                 average_val_loss = total_val_loss / len(self.data_builder.valid_dataset)
                 self.history["val_loss_per_epoch"].append(average_val_loss)  # Store validation loss
-
+            self.checkpoint.on_epoch_end(epoch,
+                                         logs={"loss": total_loss, "val_loss": average_val_loss})  # Modify val_loss if applicable
             print(f"Epoch {epoch + 1}/{Config.epochs}, Train Loss: {average_loss:.4f}, Validation Loss: {average_val_loss:.4f}", end='', flush=True)
 
     def get_lr_scheduler(self, batch_size=8, mode='cos', epochs=10, plot=True):
@@ -312,7 +323,7 @@ class PlantGuesser(nn.Module):
         axes[0].set_ylabel('Loss', fontsize=16)
         axes[0].legend()
 
-        axes[1].plot(mean_deltas[0], 'r')
+        axes[1].plot(mean_deltas[0])
         axes[1].set_title('Mean Delta for batch', fontsize=16)
         axes[1].set_xlabel('Batch', fontsize=16)
         axes[1].set_ylabel('Delta', fontsize=16)

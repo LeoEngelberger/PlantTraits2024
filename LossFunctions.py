@@ -1,44 +1,48 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
 import keras as ks
+from torch import nn
 
 
-class R2Loss(ks.losses.Loss):
-    def __init__(self, use_mask=False, name="r2_loss"):
-        super().__init__(name=name)
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class R2Loss(nn.Module):
+    def __init__(self, use_mask=False):
+        super(R2Loss, self).__init__()
         self.use_mask = use_mask
 
-    def call(self, y_true, y_pred):
+    def forward(self, y_true, y_pred):
         if self.use_mask:
             mask = (y_true != -1)
-            y_true = ks.ops.where(mask, y_true, 0.0)
-            y_pred = ks.ops.where(mask, y_pred, 0.0)
-        SS_residue = ks.ops.sum(ks.ops.square(y_true - y_pred), axis=0)
-        SS_total = ks.ops.sum(ks.ops.square(y_true - ks.ops.mean(y_true, axis=0)), axis=0)
+            y_true = torch.where(mask, y_true, torch.tensor(0.0))
+            y_pred = torch.where(mask, y_pred, torch.tensor(0.0))
+        SS_residue = torch.sum(torch.square(y_true - y_pred))
+        SS_total = torch.sum(torch.square(y_true - torch.mean(y_true)))
         r2_loss = SS_residue / (SS_total + 1e-6)
-        return ks.ops.mean(r2_loss)
+        return torch.mean(r2_loss)
 
 
-class R2Metric(ks.metrics.Metric):
-    def __init__(self, name="r2", **kwargs):
-        super(R2Metric, self).__init__(name=name, )
-        self.SS_residual = self.add_weight(name='SS_residual', shape=(6,), initializer='zeros')
-        self.SS_total = self.add_weight(name='SS_total', shape=(6,), initializer='zeros')
-        self.num_samples = self.add_weight(name='num_samples', initializer='zeros')
+class R2Metric(nn.Module):
+    def __init__(self):
+        super(R2Metric, self).__init__()
+        self.register_buffer('SS_residual', torch.zeros(6))
+        self.register_buffer('SS_total', torch.zeros(6))
+        self.register_buffer('num_samples', torch.tensor(0.0))
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        SS_residual = ks.ops.sum(ks.ops.square(y_true - y_pred), axis=0)
-        SS_total = ks.ops.sum(ks.ops.square(y_true - y_pred), axis=0)
-        self.SS_residual.assign_add(SS_residual)
-        self.SS_total.assign_add(SS_total)
-        self.num_samples.assign_add(ks.ops.cast(ks.ops.shape(y_true)[0], "float32"))
+        SS_residual = torch.sum(torch.square(y_true - y_pred))
+        SS_total = torch.sum(torch.square(y_true - y_pred))
+        self.SS_residual.add_(SS_residual)
+        self.SS_total.add_(SS_total)
+        self.num_samples.add_(y_true.size(0))
 
     def result(self):
         r2 = 1 - self.SS_residual / (self.SS_total + 1e-6)
-        return ks.ops.mean(r2)
+        return torch.mean(r2)
 
     def reset_states(self):
-        self.total_SS_residual.assign(0)
-        self.total_SS_total.assign(0)
-        self.num_samples.assign(0)
-
+        self.SS_residual.zero_()
+        self.SS_total.zero_()
+        self.num_samples.zero_()
